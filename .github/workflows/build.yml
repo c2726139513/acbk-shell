@@ -1,0 +1,103 @@
+name: Build APK
+
+# 推代码即编译；也可以在 Actions 页面手动触发
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 不提交 gradle wrapper（避免往仓库塞二进制），直接装指定版本
+      - name: Install Gradle 8.7
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/gradle.zip" \
+            https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true; fi
+
+      # 仓库里不含面板地址，也不含任何密钥/口令/别名，全部从 GitHub Secrets 取。
+      # keystore 只落在 runner 的临时目录，随虚拟机一起销毁。
+      - name: Validate secrets & decode keystore
+        env:
+          PANEL_URL: ${{ secrets.ACBK_PANEL_URL }}
+          KS_B64: ${{ secrets.ACBK_KEYSTORE_B64 }}
+          KS_STORE_PASSWORD: ${{ secrets.ACBK_STORE_PASSWORD }}
+          KS_KEY_ALIAS: ${{ secrets.ACBK_KEY_ALIAS }}
+        run: |
+          missing=""
+          [ -z "$PANEL_URL" ]         && missing="$missing ACBK_PANEL_URL"
+          [ -z "$KS_B64" ]            && missing="$missing ACBK_KEYSTORE_B64"
+          [ -z "$KS_STORE_PASSWORD" ] && missing="$missing ACBK_STORE_PASSWORD"
+          [ -z "$KS_KEY_ALIAS" ]      && missing="$missing ACBK_KEY_ALIAS"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 Secret:$missing —— 见 README「2. 配置 4 个 GitHub Secrets」"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ks"
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/ks/acbk-release.p12"
+          chmod 600 "$RUNNER_TEMP/ks/acbk-release.p12"
+
+      # 前置校验：-importkeystore 会真的用口令解密私钥，
+      # 因此同时验证了「口令正确」「别名存在」「Java 能读出这个 keystore」
+      # （PKCS12 靠 localKeyID 把私钥和证书配对，配对失败会抛 Certificate chain not found）。
+      # 有问题在这里就拦下来，而不是等编到签名阶段才炸。
+      - name: Verify keystore
+        env:
+          KS: ${{ runner.temp }}/ks/acbk-release.p12
+          KS_STORE_PASSWORD: ${{ secrets.ACBK_STORE_PASSWORD }}
+          KS_KEY_ALIAS: ${{ secrets.ACBK_KEY_ALIAS }}
+        run: |
+          # 临时口令随机生成，只用于这次校验的临时文件（用完即删）
+          TMP_PASS="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)"
+          keytool -importkeystore \
+            -srckeystore "$KS" -srcstoretype PKCS12 \
+            -srcstorepass "$KS_STORE_PASSWORD" -srcalias "$KS_KEY_ALIAS" \
+            -destkeystore "$RUNNER_TEMP/ks/verify.p12" -deststoretype PKCS12 \
+            -deststorepass "$TMP_PASS" -destkeypass "$TMP_PASS" -noprompt
+          rm -f "$RUNNER_TEMP/ks/verify.p12"
+          echo "keystore 校验通过"
+
+      - name: Build debug + release APK
+        env:
+          ACBK_PANEL_URL: ${{ secrets.ACBK_PANEL_URL }}
+          ACBK_KEYSTORE: ${{ runner.temp }}/ks/acbk-release.p12
+          ACBK_STORE_PASSWORD: ${{ secrets.ACBK_STORE_PASSWORD }}
+          ACBK_KEY_ALIAS: ${{ secrets.ACBK_KEY_ALIAS }}
+        run: gradle assembleDebug assembleRelease --no-daemon --stacktrace
+
+      # 把实际签名指纹打出来，方便核对 release 包用的是不是固定密钥
+      - name: Show release APK signature
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
+          if [ -n "$BT" ] && [ -n "$APK" ]; then
+            "$BT/apksigner" verify --print-certs "$APK" | grep -iE "signer #1 certificate (DN|SHA-256)" || true
+          fi
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: acbk-shell-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

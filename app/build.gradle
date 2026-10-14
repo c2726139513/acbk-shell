@@ -1,0 +1,105 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ── 构建期注入的配置 ────────────────────────────────────────────────────────────
+// 仓库里既不含面板地址，也不含任何密钥/口令/别名。全部由 GitHub Secrets 注入，
+// CI 经环境变量传进来（见 .github/workflows/build.yml）。
+//
+// 缺任何一项都直接让构建失败 —— 不静默降级。降级出来的包（占位地址 / debug 签名）
+// 能装但用不了或无法覆盖升级，比直接报错更难排查。
+def panelUrl = System.getenv('ACBK_PANEL_URL') ?: (project.findProperty('ACBK_PANEL_URL') as String)
+def ksPath   = System.getenv('ACBK_KEYSTORE')
+def ksStore  = System.getenv('ACBK_STORE_PASSWORD')
+def ksAlias  = System.getenv('ACBK_KEY_ALIAS')
+// PKCS12 不支持独立的密钥口令（keytool 会忽略 -keypass），密钥口令恒等于库口令
+def ksKeyPass = ksStore
+
+def missing = []
+if (!panelUrl) missing << 'ACBK_PANEL_URL'
+if (!ksPath)   missing << 'ACBK_KEYSTORE'
+if (!ksStore)  missing << 'ACBK_STORE_PASSWORD'
+if (!ksAlias)  missing << 'ACBK_KEY_ALIAS'
+
+// 本地想随便编个包时显式放行：gradle -PACBK_ALLOW_LOCAL_BUILD=1 ...
+def allowLocalBuild = System.getenv('ACBK_ALLOW_LOCAL_BUILD') == '1' ||
+        project.hasProperty('ACBK_ALLOW_LOCAL_BUILD')
+
+if (!missing.isEmpty() && !allowLocalBuild) {
+    throw new GradleException(
+            "缺少构建配置: ${missing.join(', ')}\n" +
+            "这些值不在仓库里，必须由 GitHub Secrets 注入。\n" +
+            "请在仓库 Settings → Secrets and variables → Actions 添加：\n" +
+            "  ACBK_PANEL_URL        面板公网地址（https://…/，结尾带斜杠）\n" +
+            "  ACBK_KEYSTORE_B64     keystore 文件的 base64（整行）\n" +
+            "  ACBK_STORE_PASSWORD   keystore 口令\n" +
+            "  ACBK_KEY_ALIAS        密钥别名\n" +
+            "详见 README「2. 配置 4 个 GitHub Secrets」。\n" +
+            "（确实只想编个调试包：gradle -PACBK_ALLOW_LOCAL_BUILD=1 ...）")
+}
+
+def useReleaseSign = ksPath && ksStore && ksAlias
+
+if (useReleaseSign && !file(ksPath).exists()) {
+    throw new GradleException("ACBK_KEYSTORE 指向的文件不存在: ${ksPath}")
+}
+
+// 面板地址要写进 strings.xml，先做 XML 转义（& 必须最先替换）
+def xmlEscape = { String s ->
+    s.replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '\\"')
+            .replace("'", "\\'")
+}
+def effectivePanelUrl = panelUrl ? xmlEscape(panelUrl) : 'about:blank'
+
+android {
+    namespace 'cn.acbk.shell'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'cn.acbk.shell'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+
+        // 注入 R.string.panel_url —— 仓库里的 strings.xml 已不再包含它
+        resValue 'string', 'panel_url', effectivePanelUrl
+    }
+
+    if (useReleaseSign) {
+        signingConfigs {
+            release {
+                storeFile file(ksPath)
+                storeType 'PKCS12'
+                storePassword ksStore
+                keyAlias ksAlias
+                keyPassword ksKeyPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig useReleaseSign ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+// 每次构建把注入情况打出来，省得翻日志猜。
+// 故意不打印地址本身，避免泄漏进 CI 日志。
+logger.lifecycle(useReleaseSign
+        ? "acbk-shell 构建：release keystore (alias=${ksAlias})，面板地址已注入"
+        : "acbk-shell 构建：debug 签名 + 占位地址（已显式开启 ACBK_ALLOW_LOCAL_BUILD）")

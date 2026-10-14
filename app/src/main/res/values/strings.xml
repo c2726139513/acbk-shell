@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">记账助手</string>
+    <!--
+      panel_url 不在这里：构建时由 app/build.gradle 的 resValue 注入，
+      值来自 GitHub Secret ACBK_PANEL_URL（仓库里不出现你的服务器地址）。
+      在这里再写一份会导致资源重复而构建失败。
+    -->
+</resources>
