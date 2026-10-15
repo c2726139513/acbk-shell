@@ -3,6 +3,7 @@ package cn.acbk.shell;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -40,6 +41,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 记账助手 WebView 壳。
@@ -418,28 +421,36 @@ public class MainActivity extends Activity {
             super.onActivityResult(requestCode, resultCode, data);
             return;
         }
+        Uri[] picked = extractPicked(data);
         if (filePathCallback == null) return;
-        filePathCallback.onReceiveValue(extractPicked(data));
+        filePathCallback.onReceiveValue(picked);
         filePathCallback = null;
     }
 
     /**
-     * 取选择器返回的图片 URI。
+     * 从返回的 Intent 里尽量挖出选中的 URI。
      *
-     * 不能只用 FileChooserParams.parseResult：它只看 getClipData() 和 getData()，
-     * 都取不到就返回 null —— 而 onReceiveValue(null) 在 WebView 里等于「用户取消」，
+     * 不用 WebChromeClient.FileChooserParams.parseResult：它只看 getData() 和 getClipData()，
+     * 两者都为空就返回 null —— 而 onReceiveValue(null) 在 WebView 里等于「用户取消」，
      * 页面连 change 事件都收不到，表现就是「选了图但什么都不发生」。
-     * 实测有相册把 URI 放在 EXTRA_STREAM 里，所以多兜这一层。
+     * 这里多兜一层 EXTRA_STREAM：少数文件管理器/相册只把 URI 放那儿。
      */
     private Uri[] extractPicked(Intent data) {
-        // 先交给系统实现，它正确支持多选
-        Uri[] fromParams = WebChromeClient.FileChooserParams.parseResult(RESULT_OK, data);
-        if (fromParams != null && fromParams.length > 0 && fromParams[0] != null) return fromParams;
-        // 系统实现取不到时自己兜：getData() → EXTRA_STREAM
         if (data == null) return null;
-        Uri single = data.getData();
-        if (single == null) single = data.getParcelableExtra(Intent.EXTRA_STREAM);
-        return single == null ? null : new Uri[]{single};
+        List<Uri> out = new ArrayList<>();
+        ClipData clip = data.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) out.add(uri);
+            }
+        }
+        if (out.isEmpty() && data.getData() != null) out.add(data.getData());
+        if (out.isEmpty()) {
+            Uri stream = data.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (stream != null) out.add(stream);
+        }
+        return out.isEmpty() ? null : out.toArray(new Uri[0]);
     }
 
     @Override

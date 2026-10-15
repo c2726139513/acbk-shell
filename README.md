@@ -224,7 +224,7 @@ acbk-shell/
 ## 技术选择说明
 
 - **纯 Java + 零第三方依赖**：`android.webkit` 与 `android.print` 都是系统 API，不用 AndroidX，
-  所以 APK 很小、编译快、不会因为依赖版本互相打架（本工程 490 行 Java + 48 KB 资源，无任何第三方库）。
+  所以 APK 很小、编译快、不会因为依赖版本互相打架（本工程 501 行 Java + 48 KB 资源，无任何第三方库）。
 - **不提交 Gradle Wrapper**：避免往仓库塞二进制；CI 里直接装 Gradle 8.7。
 - **代码里零密钥、零服务器地址**：面板地址与签名密钥全部来自 GitHub Secrets，构建时注入
   （地址走 `resValue` 写进 `R.string.panel_url`，keystore 只落在 runner 临时目录、随虚拟机销毁）；
