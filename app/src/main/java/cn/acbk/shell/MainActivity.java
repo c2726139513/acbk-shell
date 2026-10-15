@@ -63,6 +63,10 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 临时诊断：若为 true，说明这个页面是被系统销毁后重建的 ——
+        // 那样 filePathCallback 会丢，选图结果也就无处可送。定位完删除。
+        if (savedInstanceState != null) toast("① 页面被系统重建过");
+
         panelUrl = getString(R.string.panel_url).trim();
 
         webView = new WebView(this);
@@ -249,6 +253,17 @@ public class MainActivity extends Activity {
                 + "  try{var el=document.getElementById('vDownload');if(el&&el.href){u=el.href;}}catch(e){}"
                 + "  try{AcbkShell.print(u);}catch(e){}"
                 + "};"
+                // ↓↓↓ 临时诊断：选完图后报告页面实际收到了什么。定位完删除。
+                + "var fi=document.getElementById('fileInput');"
+                + "if(fi&&!fi.__acbkDiag){fi.__acbkDiag=1;"
+                + "fi.addEventListener('change',function(){"
+                + "  var f=fi.files&&fi.files[0];"
+                + "  setTimeout(function(){"
+                + "    var n=document.querySelectorAll('.pthumb').length;"
+                + "    try{AcbkShell.diag('③ 页面收到: '+(f?((f.name||'?')+' 类型='+(f.type||'(空)')+' '+f.size+'B'):'没有文件')+' 缩略图='+n);}catch(e){}"
+                + "  },700);"
+                + "});}"
+                // ↑↑↑ 临时诊断结束
                 + "})();";
         webView.evaluateJavascript(js, null);
     }
@@ -258,6 +273,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void print(final String pdfUrl) {
             runOnUiThread(() -> doPrint(pdfUrl));
+        }
+
+        /** 临时诊断用：把页面侧看到的情况回传到原生侧弹出来。定位完删除。 */
+        @JavascriptInterface
+        public void diag(final String msg) {
+            runOnUiThread(() -> toast(msg));
         }
     }
 
@@ -418,6 +439,10 @@ public class MainActivity extends Activity {
             super.onActivityResult(requestCode, resultCode, data);
             return;
         }
+        // 临时诊断：看选择器到底返回了什么、回调还在不在。定位完删除。
+        toast("② 选择器返回 码=" + resultCode
+                + " 数据=" + (data != null ? "有" : "无")
+                + " 回调=" + (filePathCallback != null ? "在" : "已丢"));
         if (filePathCallback == null) return;
         // 这里故意传 RESULT_OK，而不是真实的 resultCode。
         // parseResult 只在 resultCode==RESULT_OK 时才去提取数据，而部分机型的相册/文件管理器
