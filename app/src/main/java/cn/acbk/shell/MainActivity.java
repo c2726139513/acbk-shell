@@ -3,7 +3,6 @@ package cn.acbk.shell;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
-import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -41,8 +40,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * 记账助手 WebView 壳。
@@ -65,10 +62,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // 临时诊断：若为 true，说明这个页面是被系统销毁后重建的 ——
-        // 那样 filePathCallback 会丢，选图结果也就无处可送。定位完删除。
-        if (savedInstanceState != null) toast("① 页面被系统重建过");
 
         panelUrl = getString(R.string.panel_url).trim();
 
@@ -256,22 +249,6 @@ public class MainActivity extends Activity {
                 + "  try{var el=document.getElementById('vDownload');if(el&&el.href){u=el.href;}}catch(e){}"
                 + "  try{AcbkShell.print(u);}catch(e){}"
                 + "};"
-                // ↓↓↓ 临时诊断：选完图后报告页面实际收到了什么。定位完删除。
-                + "var fi=document.getElementById('fileInput');"
-                + "if(!fi){try{AcbkShell.diag('③ 注入失败: 页面上找不到 #fileInput');}catch(e){}}"
-                + "else if(!fi.__acbkDiag){fi.__acbkDiag=1;"
-                // 用捕获阶段 + 同步读 files：面板自己的监听器会把 input.value 清空，
-                // 晚一步再读就是空的，会误报成"没有文件"
-                + "document.addEventListener('change',function(e){"
-                + "  var t=e.target;if(!t||t.id!=='fileInput')return;"
-                + "  var f=t.files&&t.files[0];"
-                + "  var d=f?((f.name||'?')+' 类型='+(f.type||'(空)')+' '+f.size+'B'):'没有文件';"
-                + "  setTimeout(function(){"
-                + "    var n=document.querySelectorAll('.pthumb').length;"
-                + "    try{AcbkShell.diag('③ 页面收到: '+d+' 缩略图='+n);}catch(e2){}"
-                + "  },700);"
-                + "},true);}"
-                // ↑↑↑ 临时诊断结束
                 + "})();";
         webView.evaluateJavascript(js, null);
     }
@@ -281,12 +258,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void print(final String pdfUrl) {
             runOnUiThread(() -> doPrint(pdfUrl));
-        }
-
-        /** 临时诊断用：把页面侧看到的情况回传到原生侧弹出来。定位完删除。 */
-        @JavascriptInterface
-        public void diag(final String msg) {
-            runOnUiThread(() -> toast(msg));
         }
     }
 
@@ -447,45 +418,28 @@ public class MainActivity extends Activity {
             super.onActivityResult(requestCode, resultCode, data);
             return;
         }
-        // 临时诊断：看选择器到底返回了什么、回调还在不在、能不能解析出 URI。定位完删除。
-        Uri[] picked = extractPicked(data);
-        toast("② 码=" + resultCode + " 数据=" + (data != null ? "有" : "无")
-                + " 回调=" + (filePathCallback != null ? "在" : "已丢")
-                + " 提取=" + (picked == null ? "null" : picked.length + "个")
-                + (picked != null && picked.length > 0 && picked[0] != null
-                        ? " " + picked[0].getScheme() : "")
-                + (picked == null && data != null
-                        ? " extras=" + (data.getExtras() == null ? "无" : data.getExtras().keySet())
-                          + " type=" + data.getType() : ""));
         if (filePathCallback == null) return;
-        filePathCallback.onReceiveValue(picked);
+        filePathCallback.onReceiveValue(extractPicked(data));
         filePathCallback = null;
     }
 
     /**
-     * 从返回的 Intent 里尽量挖出选中的 URI。
+     * 取选择器返回的图片 URI。
      *
-     * 不用 WebChromeClient.FileChooserParams.parseResult：它只看 getData() 和 getClipData()，
-     * 两者都为空就返回 null —— 而 onReceiveValue(null) 在 WebView 里等于「用户取消」，
+     * 不能只用 FileChooserParams.parseResult：它只看 getClipData() 和 getData()，
+     * 都取不到就返回 null —— 而 onReceiveValue(null) 在 WebView 里等于「用户取消」，
      * 页面连 change 事件都收不到，表现就是「选了图但什么都不发生」。
-     * 这里多兜一层 EXTRA_STREAM：少数文件管理器/相册只把 URI 放那儿。
+     * 实测有相册把 URI 放在 EXTRA_STREAM 里，所以多兜这一层。
      */
     private Uri[] extractPicked(Intent data) {
+        // 先交给系统实现，它正确支持多选
+        Uri[] fromParams = WebChromeClient.FileChooserParams.parseResult(RESULT_OK, data);
+        if (fromParams != null && fromParams.length > 0 && fromParams[0] != null) return fromParams;
+        // 系统实现取不到时自己兜：getData() → EXTRA_STREAM
         if (data == null) return null;
-        List<Uri> out = new ArrayList<>();
-        ClipData clip = data.getClipData();
-        if (clip != null) {
-            for (int i = 0; i < clip.getItemCount(); i++) {
-                Uri uri = clip.getItemAt(i).getUri();
-                if (uri != null) out.add(uri);
-            }
-        }
-        if (out.isEmpty() && data.getData() != null) out.add(data.getData());
-        if (out.isEmpty()) {
-            Uri stream = data.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (stream != null) out.add(stream);
-        }
-        return out.isEmpty() ? null : out.toArray(new Uri[0]);
+        Uri single = data.getData();
+        if (single == null) single = data.getParcelableExtra(Intent.EXTRA_STREAM);
+        return single == null ? null : new Uri[]{single};
     }
 
     @Override

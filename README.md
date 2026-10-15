@@ -169,9 +169,10 @@ git push -u origin main
 说明第 2 步没拿到 PDF 地址，走了兜底路径。请在查看器打开账单后再点打印。
 
 **点了 📎 选了图片，但输入框上什么都没出现？**
-正在定位中。当前版本带**临时诊断 Toast**：① 页面是否被系统重建过、② 选择器返回了什么、
-③ 页面实际收到了什么。把这三条提示的内容发出来即可定位。定位完会删掉这些埋点。
-（面板侧不做任何改动 —— 浏览器里一切正常，说明问题在壳。）
+已修复。根因：壳原来用 `FileChooserParams.parseResult()` 取选中的图片，它只看
+`getClipData()` / `getData()`，都取不到就返回 `null` —— 而 `onReceiveValue(null)`
+在 WebView 里等于「用户取消」，**页面连 `change` 事件都收不到**，于是表现成"选了没反应"。
+现在取不到时会自己兜一层 `getData()` → `EXTRA_STREAM`。**面板侧未做任何改动。**
 
 **登录状态会丢吗？**
 WebView 有独立的 cookie 存储，和手机浏览器互不影响。登录一次后保持；面板的会话有效期由服务端决定（见面板配置里的 `auth_cookie_session_ttl`）。
@@ -223,7 +224,7 @@ acbk-shell/
 ## 技术选择说明
 
 - **纯 Java + 零第三方依赖**：`android.webkit` 与 `android.print` 都是系统 API，不用 AndroidX，
-  所以 APK 很小（约 1 MB 级）、编译快、不会因为依赖版本互相打架。
+  所以 APK 很小、编译快、不会因为依赖版本互相打架（本工程 490 行 Java + 48 KB 资源，无任何第三方库）。
 - **不提交 Gradle Wrapper**：避免往仓库塞二进制；CI 里直接装 Gradle 8.7。
 - **代码里零密钥、零服务器地址**：面板地址与签名密钥全部来自 GitHub Secrets，构建时注入
   （地址走 `resValue` 写进 `R.string.panel_url`，keystore 只落在 runner 临时目录、随虚拟机销毁）；
