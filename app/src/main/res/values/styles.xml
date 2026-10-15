@@ -1,6 +1,14 @@
 <resources>
-    <!-- 无 ActionBar：壳不提供任何浏览器式界面 -->
-    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <!--
+      无 ActionBar：壳不提供任何浏览器式界面。
+
+      必须用 .Light 变体 —— 它把 android:isLightTheme 设成 true，而 WebView 正是靠这个
+      属性决定向网页报告 prefers-color-scheme: light 还是 dark。用深色的 Theme.DeviceDefault
+      会让面板永远以为自己该显示深色。深色变体在 values-night/styles.xml。
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:statusBarColor">#4d6bfe</item>
+        <!-- 与面板浅色背景色一致，避免加载瞬间闪白 -->
+        <item name="android:windowBackground">#f5f6f8</item>
     </style>
 </resources>

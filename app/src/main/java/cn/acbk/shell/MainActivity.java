@@ -7,6 +7,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -69,6 +70,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(webView);
 
+        // WebView 默认白底，深色模式下页面加载前会闪一下白 —— 让它跟着当前主题走
+        webView.setBackgroundColor(isNightMode() ? 0xFF131417 : 0xFFF5F6F8);
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);      // 面板用 localStorage 记 sessionId
@@ -108,7 +112,7 @@ public class MainActivity extends Activity {
                 new AlertDialog.Builder(MainActivity.this)
                         .setTitle("证书校验失败")
                         .setMessage("无法安全连接面板（错误码 " + error.getPrimaryError() + "）。\n\n"
-                                + "请确认 panel_url 用的是有效 HTTPS 证书。")
+                                + "请确认 Secret ACBK_PANEL_URL 用的是有效 HTTPS 证书的域名。")
                         .setPositiveButton("知道了", null)
                         .show();
             }
@@ -441,6 +445,18 @@ public class MainActivity extends Activity {
 
     private boolean isDebuggable() {
         return (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    /**
+     * 当前是否处于系统深色模式。
+     *
+     * 这只是给 WebView 底色用的（避免加载瞬间闪白）。真正让面板切深浅色的是
+     * values-night/styles.xml 里那套 isLightTheme=false 的主题 —— WebView 据此
+     * 向网页报告 prefers-color-scheme，面板自带的配色随之生效。
+     */
+    private boolean isNightMode() {
+        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
     }
 
     private void toast(final String message) {

@@ -183,7 +183,11 @@ WebView 有独立的 cookie 存储，和手机浏览器互不影响。登录一�
 手机上已安装的旧版必须先卸载**才能装新版。
 
 **想换图标？**
-替换 `app/src/main/res/mipmap-*/ic_launcher.png`（自适应图标用 `ic_launcher_background.png` + `ic_launcher_foreground.png`）。
+改 `tools/make-icons.py` 里的品牌色常量，然后 `python3 tools/make-icons.py` 重新生成。
+注意**自适应图标分两层**：背景层只能有底色（`with_glyph=False`），图形放前景层 ——
+两层都画图形的话，桌面上会出现大图形套小图形的**双层重影**。
+`FOREGROUND_SCALE` 控制前景图形大小：自适应图标只有中央 72dp（画布的 66.7%）一定可见，
+超出部分会被启动器的遮罩切掉。
 
 **想改 App 名字？**
 `app/src/main/res/values/strings.xml` 里的 `app_name`。
@@ -201,7 +205,8 @@ acbk-shell/
 │       │   └── MainActivity.java       全部逻辑（约 450 行）
 │       └── res/
 │           ├── values/strings.xml      只有 app_name（panel_url 由构建时注入）
-│           ├── values/styles.xml       无 ActionBar 主题
+│           ├── values/styles.xml       浅色主题（父主题带 .Light）
+│           ├── values-night/styles.xml 深色主题（跟随系统）
 │           └── mipmap-*/               图标
 ├── tools/make-icons.py                 图标生成脚本（纯 numpy 自栅格化，可复现）
 ├── build.gradle / settings.gradle / gradle.properties
@@ -219,7 +224,13 @@ acbk-shell/
   （地址走 `resValue` 写进 `R.string.panel_url`，keystore 只落在 runner 临时目录、随虚拟机销毁）；
   `app/build.gradle` 读不到配置就**直接失败**，避免产出装不上的 debug 签名包。
 - **`launchMode=singleTask` + `configChanges`**：旋转屏幕、从桌面再次点开都不会重建 Activity，
-  避免 WebView 重载把正在跑的 SSE 流断掉。
+  避免 WebView 重载把正在跑的 SSE 流断掉。但**刻意不接管 `uiMode`** —— 切换深浅色时让 Activity
+  重建，主题才会重新解析（见下条）。
+- **深浅色跟随系统**：`values/styles.xml` 是浅色主题、`values-night/styles.xml` 是深色主题。
+  父主题带不带 `.Light` 决定 `android:isLightTheme`，而 WebView 正是靠这个属性向网页报告
+  `prefers-color-scheme: light` 还是 `dark` —— 面板自带的那套配色
+  （`@media (prefers-color-scheme: dark)`）随之自动切换，壳里不需要任何暗色代码。
+  切换瞬间 WebView 会重载，面板的服务端历史恢复 + 断线重连会接回去。
 - **`addJavascriptInterface` 的安全边界**：该桥只暴露一个 `print` 方法，且站外链接一律交给系统浏览器，
   面板页面不会被导航到第三方站点。
 

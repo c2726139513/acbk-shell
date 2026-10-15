@@ -14,9 +14,14 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+          刻意不接管 uiMode：切换深浅色时让 Activity 重建，主题才会重新解析，
+          WebView 也才会向网页报告新的 prefers-color-scheme。代价是切换瞬间 WebView 重载
+          （面板有服务端历史恢复 + 断线重连，正在跑的任务不会丢）。
+        -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">

@@ -1,0 +1,12 @@
+<resources>
+    <!--
+      系统深色模式下的同一套主题（night 资源限定符，由系统自动选择）。
+      父主题不带 .Light，于是 android:isLightTheme=false，WebView 就会向网页
+      报告 prefers-color-scheme: dark，面板自带的深色配色随之生效。
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">#4d6bfe</item>
+        <!-- 与面板深色背景色一致 -->
+        <item name="android:windowBackground">#131417</item>
+    </style>
+</resources>

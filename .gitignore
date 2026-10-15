@@ -10,3 +10,4 @@ captures/
 # 签名密钥不进仓库：CI 上从 Secret(ACBK_KEYSTORE_B64) 解码
 *.p12
 keystore/
+__pycache__/
