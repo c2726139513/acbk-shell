@@ -335,6 +335,11 @@ public class MainActivity extends Activity {
                 callback.onWriteFailed(e.getMessage());
             }
         }
+
+        @Override
+        public void onFinish() {
+            file.delete();              // 打印结束（含取消）后删掉临时 PDF，别留在缓存里
+        }
     }
 
     // ---------- 下载 / 存图 ----------
@@ -399,6 +404,8 @@ public class MainActivity extends Activity {
                 toast("已保存到相册");
             } catch (Exception e) {
                 toast("保存失败：" + e.getMessage());
+            } finally {
+                file.delete();          // 只是中转，进了相册就不用留在缓存里
             }
         }).start();
     }
@@ -407,15 +414,18 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == REQ_FILE) {
-            if (filePathCallback != null) {
-                filePathCallback.onReceiveValue(
-                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
-                filePathCallback = null;
-            }
+        if (requestCode != REQ_FILE) {
+            super.onActivityResult(requestCode, resultCode, data);
             return;
         }
-        super.onActivityResult(requestCode, resultCode, data);
+        if (filePathCallback == null) return;
+        // 这里故意传 RESULT_OK，而不是真实的 resultCode。
+        // parseResult 只在 resultCode==RESULT_OK 时才去提取数据，而部分机型的相册/文件管理器
+        // 在用户确实选了图片的情况下仍然回 RESULT_CANCELED —— 那样 parseResult 直接返回 null，
+        // 页面收到空结果，用户看到的就是"选了没反应"。data 为 null 时它照样返回 null，取消不受影响。
+        filePathCallback.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(RESULT_OK, data));
+        filePathCallback = null;
     }
 
     @Override

@@ -168,6 +168,11 @@ git push -u origin main
 **打印出来是网页截图而不是账单？**
 说明第 2 步没拿到 PDF 地址，走了兜底路径。请在查看器打开账单后再点打印。
 
+**点了 📎 选了图片，但输入框上什么都没出现？**
+面板原来只按 `File.type` 判断是不是图片，而壳透传过来的 URI 常常没有 MIME 类型
+（`File.type` 是空字符串）—— 那样会被**静默丢掉**。现在改成"类型为空也收下"，
+真不是图片的话解码时会明确报「图片解码失败」。
+
 **登录状态会丢吗？**
 WebView 有独立的 cookie 存储，和手机浏览器互不影响。登录一次后保持；面板的会话有效期由服务端决定（见面板配置里的 `auth_cookie_session_ttl`）。
 
@@ -223,6 +228,8 @@ acbk-shell/
 - **代码里零密钥、零服务器地址**：面板地址与签名密钥全部来自 GitHub Secrets，构建时注入
   （地址走 `resValue` 写进 `R.string.panel_url`，keystore 只落在 runner 临时目录、随虚拟机销毁）；
   `app/build.gradle` 读不到配置就**直接失败**，避免产出装不上的 debug 签名包。
+- **应用端不缓存内容**：壳只持久保留登录 cookie（WebView 自带）。下载的账单 PDF 与长按保存的图片
+  只是喂给系统打印/相册 API 的临时中转文件，用完即删。图片数据只发往服务端，清理由服务端负责。
 - **`launchMode=singleTask` + `configChanges`**：旋转屏幕、从桌面再次点开都不会重建 Activity，
   避免 WebView 重载把正在跑的 SSE 流断掉。但**刻意不接管 `uiMode`** —— 切换深浅色时让 Activity
   重建，主题才会重新解析（见下条）。
